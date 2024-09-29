@@ -16,21 +16,29 @@ const Home = ({ darkMode }) => {
   const [selectedCategory, setSelectedCategory] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
-  const [hasMore, setHasMore] = useState(true); 
+  const [hasMore, setHasMore] = useState(true);
   const [showScrollToTop, setShowScrollToTop] = useState(false);
   const PRODUCTS_PER_PAGE = 10;
 
-  // Fetch product data and categories
-  async function fetchProductData(category = "", page = 1, append = false) {
+  // Fetch product data and categories based on category and search input
+  async function fetchProductData(category = "", page = 1, query = "", append = false) {
     setLoading(true);
     try {
       let productRes;
-      if (category) {
+      if (query && category) {
+        // Search within the selected category
+        productRes = await fetch(`${BASE_API_URL}/category/${category}/search?q=${query}&limit=${PRODUCTS_PER_PAGE}&skip=${(page - 1) * PRODUCTS_PER_PAGE}`);
+      } else if (query && !category) {
+        // Search across all categories
+        productRes = await fetch(`${BASE_API_URL}/search?q=${query}&limit=${PRODUCTS_PER_PAGE}&skip=${(page - 1) * PRODUCTS_PER_PAGE}`);
+      } else if (!query && category) {
+        // Get products from the selected category
         productRes = await fetch(`${BASE_API_URL}/category/${category}?limit=${PRODUCTS_PER_PAGE}&skip=${(page - 1) * PRODUCTS_PER_PAGE}`);
       } else {
+        // Get all products if no query or category is specified
         productRes = await fetch(`${BASE_API_URL}?limit=${PRODUCTS_PER_PAGE}&skip=${(page - 1) * PRODUCTS_PER_PAGE}`);
       }
-      
+
       const productData = await productRes.json();
 
       if (append) {
@@ -52,34 +60,42 @@ const Home = ({ darkMode }) => {
       setLoading(false);
     }
   }
-  
-  // Fetch products based on search input
-  async function fetchSearchProducts(query) {
-    setLoading(true);
-    try {
-      const searchRes = await fetch(`${BASE_API_URL}/search?q=${query}`);
-      const searchData = await searchRes.json();
-      setProducts(searchData.products); // Update the products state with search results
-      setHasMore(false); // No pagination needed for search results
-    } catch (err) {
-      console.error("Error fetching search products:", err);
-    } finally {
-      setLoading(false);
-    }
-  }
 
+  // Handle search input change and update URL
   const handleSearchChange = (e) => {
     const inputValue = e.target.value;
     setSearchInput(inputValue);
 
-    // Call search API when input is not empty
+    const params = new URLSearchParams(location.search);
     if (inputValue) {
-      fetchSearchProducts(inputValue);
+      params.set("search", inputValue);
     } else {
-      fetchProductData(selectedCategory, currentPage); // Reset to original fetch
+      params.delete("search");
     }
+    navigate(`?${params.toString()}`);
+
+    // Call search API or reset to original fetch based on input value
+    setCurrentPage(1);
+    fetchProductData(selectedCategory === "All Categories" ? "" : selectedCategory, 1, inputValue);
   };
-  
+
+  // Handle category filter change and update URL
+  const handleFilterChange = (category) => {
+    setSelectedCategory(category);
+
+    const params = new URLSearchParams(location.search);
+    if (category) {
+      params.set("category", category);
+    } else {
+      params.delete("category");
+    }
+    navigate(`?${params.toString()}`);
+
+    setCurrentPage(1);
+    fetchProductData(category === "All Categories" ? "" : category, 1, searchInput);
+  };
+
+  // Scroll to top button visibility
   useEffect(() => {
     const handleScroll = () => {
       if (window.scrollY > 300) {
@@ -95,16 +111,19 @@ const Home = ({ darkMode }) => {
     };
   }, []);
 
-  useEffect(() => {
-    fetchProductData();
-  }, []);
-
+  // Fetch products and categories initially based on query params
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const category = params.get("category") || "";
-    setSelectedCategory(category);
+    const searchQuery = params.get("search") || "";
+
+    setSelectedCategory(category || "All Categories");
+    setSearchInput(searchQuery);
+
+    fetchProductData(category === "All Categories" ? "" : category, 1, searchQuery);
   }, [location.search]);
-  
+
+  // Infinite scrolling logic
   useEffect(() => {
     const handleScroll = () => {
       const { scrollTop, scrollHeight, clientHeight } = document.documentElement;
@@ -119,22 +138,9 @@ const Home = ({ darkMode }) => {
 
   useEffect(() => {
     if (currentPage > 1) {
-      fetchProductData(selectedCategory, currentPage, true);
+      fetchProductData(selectedCategory === "All Categories" ? "" : selectedCategory, currentPage, searchInput, true);
     }
   }, [currentPage]);
-
-  const handleFilterChange = (category) => {
-    setSelectedCategory(category);
-    const params = new URLSearchParams(location.search);
-    if (category) {
-      params.set("category", category);
-    } else {
-      params.delete("category");
-    }
-    navigate({ search: params.toString() });
-    setCurrentPage(1);
-    fetchProductData(category);
-  };
 
   const scrollToTop = () => {
     window.scrollTo({
@@ -142,18 +148,19 @@ const Home = ({ darkMode }) => {
       behavior: "smooth",
     });
   };
-  
+
   return (
     <div className={`min-h-screen p-4 ${darkMode ? 'bg-gray-900' : 'bg-gray-50'}`}>
       <select 
-        className={`border w-[155px] border-gray-300 rounded-lg p-2 flex-1 ${darkMode ? 'bg-gray-700 text-white' : 'bg-white'} shadow-sm hover:shadow-md transition duration-200`}
+        className={`border w-[155px] border-gray-300 rounded-lg p-2 flex-1 custom-scrollbar ${darkMode ? 'bg-gray-700 text-white' : 'bg-white'} shadow-sm hover:shadow-md transition duration-200`}
         value={selectedCategory} 
         onChange={(e) => handleFilterChange(e.target.value)}>
-        <option value="">All Categories</option>
+        <option value="All Categories">All Categories</option>
         {categories.map((category, index) => (
           <option key={index} value={category}>{category}</option>
         ))}
       </select>
+
       <input
         type="text"
         placeholder="Search your product"
